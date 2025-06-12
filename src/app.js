@@ -10,7 +10,8 @@ app.use(cookieParser());
 const cors = require('cors');
 app.use(cors({
     origin: 'http://localhost:3000',
-    credentials: true, // Allow sending cookies with requests
+    credentials: true,
+     allowedHeaders: ['Content-Type', 'Authorization'] // Allow sending cookies with requests
 }));
 
 
@@ -21,6 +22,7 @@ const profileRouter = require('./routes/profile')
 const leadRouter = require('./routes/lead');
 const userLeadRouter = require('./routes/userLead');
 const collaborationRouter = require('./routes/collaboration');
+const GamilRouter = require('./routes/gmailRoutes');
 
 
 app.use('/',authRouter);
@@ -28,6 +30,7 @@ app.use('/',profileRouter);
 app.use('/',leadRouter);
 app.use('/',userLeadRouter);
 app.use('/',collaborationRouter);
+app.use('/',GamilRouter);
 
 
 

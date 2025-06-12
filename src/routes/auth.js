@@ -81,7 +81,21 @@ authRouter.post('/login', async (req, res) => {
             sameSite: 'lax'
         });
 
-        res.status(201).send('Login successful');
+        res.status(200).json({
+  token,
+  user: {
+    googleTokens: user.googleTokens || null,
+    _id: user._id,
+    firstName: user.firstName,
+    emailId: user.emailId,
+    age: user.age,
+    gender: user.gender,
+    photoUrl: user.photoUrl,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt
+  }
+});
+
     } catch (error) {
         res.status(500).send('Login Failed: ' + error.message);
     }
@@ -116,6 +130,12 @@ authRouter.patch('/profile/password', userAuth, async (req, res) => {
         res.status(400).send('Error ' + err.message)
     }
 })
+
+authRouter.get('/me', userAuth, (req, res) => {
+  const { password, ...safeUser } = req.user.toObject();
+  res.json(safeUser);
+});
+
 
 
 module.exports = authRouter
