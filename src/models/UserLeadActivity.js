@@ -9,15 +9,17 @@ const userLeadActivitySchema = new mongoose.Schema({
   lead: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Lead',
+    required: false // optional for manual tracking
+  },
+  to: {
+    type: String,
     required: true
   },
-  emailedAt: {
-    type: Date,
-    default: Date.now
-  },
-  responseReceivedAt: {
-    type: Date
-  },
+  subject: String,
+  body: String,
+  messageId: String,
+  sentAt: Date,
+  responseReceivedAt: Date,
   notes: {
     type: String,
     trim: true,
@@ -25,18 +27,17 @@ const userLeadActivitySchema = new mongoose.Schema({
   status: {
     type: String,
     enum: [
-      'Emailed',
-      'Waiting for Response',
-      'Follow-up Needed',
-      'Responded',
-      'Not Interested',
-      'Converted'
+      'sent',
+      'waiting',
+      'follow-up',
+      'responded',
+      'not-interested',
+      'converted',
+      'ghosted'
     ],
-    default: 'Emailed'
+    default: 'sent'
   },
-  followUpDate: {
-    type: Date
-  }
+  followUpDate: Date
 }, { timestamps: true });
 
 module.exports = mongoose.model('UserLeadActivity', userLeadActivitySchema);
