@@ -1,5 +1,5 @@
 const cron = require('node-cron');
-const EmailTracking = require('../models/EmailTracking');
+const UserLeadActivity = require('../models/UserLeadActivity');
 const User = require('../models/user');
 const { google } = require('googleapis');
 
@@ -7,7 +7,7 @@ async function checkEmailStatus() {
   console.log('Running scheduled email status check...');
   
   try {
-    const activeTrackings = await EmailTracking.find({
+    const activeTrackings = await UserLeadActivity.find({
       status: { $nin: ['replied', 'ghosted', 'bounced'] }
     }).populate('user');
 
@@ -21,11 +21,10 @@ async function checkEmailStatus() {
           process.env.GOOGLE_CLIENT_SECRET,
           process.env.GOOGLE_REDIRECT_URI
         );
-        
+
         oAuth2Client.setCredentials(user.googleTokens);
         const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
 
-        // Check thread for replies
         const thread = await gmail.users.threads.get({
           userId: 'me',
           id: tracking.messageId
@@ -33,9 +32,9 @@ async function checkEmailStatus() {
 
         const messages = thread.data.messages || [];
         const hasReply = messages.some(msg => {
-          return msg.labelIds && 
-                 !msg.labelIds.includes('SENT') && 
-                 new Date(msg.internalDate) > tracking.sentAt;
+          return msg.labelIds &&
+                 !msg.labelIds.includes('SENT') &&
+                 new Date(parseInt(msg.internalDate)) > tracking.sentAt;
         });
 
         if (hasReply) {
@@ -45,10 +44,9 @@ async function checkEmailStatus() {
           continue;
         }
 
-        // Check for ghosted status (no reply in 3 days)
         const threeDaysAgo = new Date();
         threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-        
+
         if (tracking.sentAt < threeDaysAgo) {
           tracking.status = 'ghosted';
           tracking.ghosted = true;
@@ -63,5 +61,4 @@ async function checkEmailStatus() {
   }
 }
 
-// Run every 10 minutes
 cron.schedule('*/10 * * * *', checkEmailStatus);

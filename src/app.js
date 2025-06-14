@@ -23,6 +23,7 @@ const leadRouter = require('./routes/lead');
 const userLeadRouter = require('./routes/userLead');
 const collaborationRouter = require('./routes/collaboration');
 const GamilRouter = require('./routes/gmailRoutes');
+const Trackingrouter = require('./routes/emailTrackingRoutes');
 
 
 app.use('/',authRouter);
@@ -31,6 +32,7 @@ app.use('/',leadRouter);
 app.use('/',userLeadRouter);
 app.use('/',collaborationRouter);
 app.use('/',GamilRouter);
+app.use('/',Trackingrouter);
 
 
 

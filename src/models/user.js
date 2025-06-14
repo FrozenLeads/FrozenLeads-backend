@@ -41,6 +41,10 @@ const userSchema = new mongoose.Schema({
         type:String,
         default:'https://imgs.search.brave.com/zXViuUpCT1g5k-aOXp12gFfJdBh9uWwpLeP_5YN9W5Y/rs:fit:500:0:0:0/g:ce/aHR0cHM6Ly9pLnBp/bmltZy5jb20vb3Jp/Z2luYWxzL2FiLzhk/L2RmL2FiOGRkZjQ5/ZGE0NmVkMTYyNjZj/NDE2NWMzNTIxMGRl/LmpwZw'
     },
+     googleTokens: {
+    type: Object,
+    default: null,
+  },
 
 
 },{timestamps:true})
@@ -54,9 +58,6 @@ userSchema.methods.getJwt =async  function () {
     return token
 }
 
-
-
-
 userSchema.methods.validatePassword = async function(passwordInputByUser) {
     const user = this;
     const passwordHash = user.password;
@@ -64,11 +65,9 @@ userSchema.methods.validatePassword = async function(passwordInputByUser) {
     return isPasswordValid;
 };
 
-
 userSchema.pre('save', async function(next) {
     const user = this;
     try {
-        // Only hash the password if it is a plain password (not already hashed)
         if (user.isModified('password')) {
             user.password = await bcrypt.hash(user.password, 10);
         }
@@ -77,7 +76,5 @@ userSchema.pre('save', async function(next) {
         next(error);
     }
 });
-
-
 
 module.exports = mongoose.model('User',userSchema)
