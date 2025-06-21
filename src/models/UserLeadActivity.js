@@ -11,6 +11,9 @@ const userLeadActivitySchema = new mongoose.Schema({
     ref: 'Lead',
     required: false // optional for manual tracking
   },
+  threadId: {
+   type: String
+  },
   to: {
     type: String,
     required: true

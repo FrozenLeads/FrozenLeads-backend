@@ -35,13 +35,19 @@ app.use('/',GamilRouter);
 app.use('/',Trackingrouter);
 
 
+ConnectDb().then(() => {
+  console.log('Db connected');
 
-ConnectDb().then(()=>{
-    console.log('Db connected');
-    app.listen(5000,()=>{
-        console.log('server connected');
-    })
-}).catch((err) =>{
-    console.error('Db not connected');
-})
+  try {
+    require('./jobs/emailStatusChecker');  // <-- Wrap in try-catch
+    app.listen(5000, () => {
+      console.log('server connected');
+    });
+  } catch (err) {
+    console.error('Error during startup logic:', err);
+  }
+
+}).catch((err) => {
+  console.error('Db not connected:', err);
+});
 

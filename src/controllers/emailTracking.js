@@ -43,6 +43,18 @@ exports.startTracking = async (req, res) => {
 
     const messageId = messages[0].id;
     const messageDetail = await gmail.users.messages.get({ userId: 'me', id: messageId });
+    const threadId = messageDetail.data.threadId; 
+    const existing = await UserLeadActivity.findOne({
+  user: userId,
+  to,
+  messageId
+});
+if (existing) {
+  return res.status(200).json({
+    message: 'Already tracking',
+    trackingId: existing._id
+  });
+}
 
     const headers = messageDetail.data.payload.headers;
     const subject = headers.find(h => h.name === 'Subject')?.value || '';
@@ -57,6 +69,7 @@ exports.startTracking = async (req, res) => {
       subject,
       body,
       messageId,
+      threadId,
       status: 'sent',
       sentAt: new Date()
     });

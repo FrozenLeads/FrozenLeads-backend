@@ -102,13 +102,12 @@ authRouter.post('/login', async (req, res) => {
 });
 
 
-authRouter.post('/logout', async (req, res) => {
-    await res.cookie('token', '', {
-        httpOnly: true,
-        expires: new Date(0),
-        sameSite: 'lax'
-    }).send('Logged out');
-
+authRouter.post('/logout', async (req,res)=>{
+   await    res
+    .cookie('token',null,{
+        expires:new Date(Date.now())
+    })
+    .send('Logged out')
 })
 
 authRouter.patch('/profile/password', userAuth, async (req, res) => {
