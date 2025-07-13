@@ -96,3 +96,4 @@ async function checkEmailStatus() {
 }
 checkEmailStatus();
 cron.schedule('*/10 * * * *', checkEmailStatus);
+// setInterval(checkEmailStatus, 10 * 1000);
