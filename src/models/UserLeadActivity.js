@@ -21,12 +21,14 @@ const userLeadActivitySchema = new mongoose.Schema({
   subject: String,
   body: String,
   messageId: String,
+  messageIdHeader: String,
   sentAt: Date,
   responseReceivedAt: Date,
   notes: {
     type: String,
     trim: true,
   },
+ 
   status: {
     type: String,
     enum: [
