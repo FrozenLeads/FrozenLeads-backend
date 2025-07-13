@@ -1,3 +1,4 @@
+// controllers/emailTracking.js
 const UserLeadActivity = require('../models/UserLeadActivity');
 const User = require('../models/user');
 const { google } = require('googleapis');
@@ -19,12 +20,13 @@ exports.startTracking = async (req, res) => {
     );
 
     oAuth2Client.setCredentials(user.googleTokens);
-     if (oAuth2Client.isTokenExpiring()) {
+    if (oAuth2Client.isTokenExpiring && oAuth2Client.isTokenExpiring()) {
       const { credentials } = await oAuth2Client.refreshAccessToken();
       user.googleTokens = credentials;
       await user.save();
       oAuth2Client.setCredentials(credentials);
     }
+
     const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
 
     // Fetch last email sent to this recipient
@@ -41,12 +43,29 @@ exports.startTracking = async (req, res) => {
       return res.status(404).json({ error: 'No email found in sent folder' });
     }
 
-    const messageId = messages[0].id;
-    const messageDetail = await gmail.users.messages.get({ userId: 'me', id: messageId });
+    const messageId       = messages[0].id;
+    const messageDetail   = await gmail.users.messages.get({ userId: 'me', id: messageId });
+    const threadId        = messageDetail.data.threadId;
+    const headers         = messageDetail.data.payload.headers;
 
-    const headers = messageDetail.data.payload.headers;
+    // Extract the raw RFC‑822 Message‑ID header for precise reply matching
+    const messageIdHeader = headers.find(h => h.name === 'Message-ID')?.value || '';
+
+    // Prevent duplicate tracking on same API messageId
+    const existing = await UserLeadActivity.findOne({
+      user: userId,
+      to,
+      messageId
+    });
+    if (existing) {
+      return res.status(200).json({
+        message: 'Already tracking',
+        trackingId: existing._id
+      });
+    }
+
     const subject = headers.find(h => h.name === 'Subject')?.value || '';
-    const body = Buffer.from(
+    const body    = Buffer.from(
       messageDetail.data.payload.parts?.[0]?.body?.data || '',
       'base64'
     ).toString('utf-8');
@@ -56,7 +75,9 @@ exports.startTracking = async (req, res) => {
       to,
       subject,
       body,
-      messageId,
+      messageId,         // Gmail API internal ID
+      messageIdHeader,   // Raw Message‑ID header for reply matching
+      threadId,
       status: 'sent',
       sentAt: new Date()
     });
@@ -72,7 +93,3 @@ exports.startTracking = async (req, res) => {
     res.status(500).json({ error: 'Failed to start tracking' });
   }
 };
-
-
-
-

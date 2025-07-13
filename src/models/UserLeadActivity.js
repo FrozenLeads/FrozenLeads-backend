@@ -11,6 +11,9 @@ const userLeadActivitySchema = new mongoose.Schema({
     ref: 'Lead',
     required: false // optional for manual tracking
   },
+  threadId: {
+   type: String
+  },
   to: {
     type: String,
     required: true
@@ -18,12 +21,14 @@ const userLeadActivitySchema = new mongoose.Schema({
   subject: String,
   body: String,
   messageId: String,
+  messageIdHeader: String,
   sentAt: Date,
   responseReceivedAt: Date,
   notes: {
     type: String,
     trim: true,
   },
+ 
   status: {
     type: String,
     enum: [
