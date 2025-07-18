@@ -28,7 +28,10 @@ const userLeadActivitySchema = new mongoose.Schema({
     type: String,
     trim: true,
   },
- 
+ replyTimeInHours:{
+  type:Number,
+  default:null
+ },
   status: {
     type: String,
     enum: [

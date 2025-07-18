@@ -1,76 +1,94 @@
-// utils/statusChecker.js
+// controllers/emailStatusChecker.js
 const UserLeadActivity = require('../models/UserLeadActivity');
-const { google } = require('googleapis');
+const { getGmailClient } = require('../utils/gmailClient');
 
-async function checkEmailStatus() {
-  const activeTrackings = await UserLeadActivity.find({
-    status: { $nin: ['responded', 'ghosted', 'bounced'] }
-  }).populate('user');
+exports.checkEmailStatus = async (req, res) => {
+  const userId = req.user._id;
 
-  for (const tracking of activeTrackings) {
-    try {
-      const user = tracking.user;
-      if (!user || !user.googleTokens) continue;
+  try {
+    const gmail = await getGmailClient(userId);
 
-      const oAuth2Client = new google.auth.OAuth2(
-        process.env.GOOGLE_CLIENT_ID,
-        process.env.GOOGLE_CLIENT_SECRET,
-        process.env.GOOGLE_REDIRECT_URI
-      );
-      oAuth2Client.setCredentials(user.googleTokens);
-      const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
+    // Get all unreplied/sent trackings
+    const trackings = await UserLeadActivity.find({
+      user: userId,
+      status: { $nin: ['responded', 'ghosted', 'bounced'] }
+    });
 
+    // Get past replies to calculate adaptive threshold
+    const pastReplies = await UserLeadActivity.find({
+      user: userId,
+      replyTimeInHours: { $ne: null }
+    });
+
+    let thresholdHours = 0.0083; // default
+    if (pastReplies.length >= 10) {
+      const avg = pastReplies.reduce((sum, doc) => sum + doc.replyTimeInHours, 0) / pastReplies.length;
+      thresholdHours = Math.round(avg);
+    }
+
+    // ⏱ override for test: 3 seconds = 0.00083 hours
+    const testOverride = true;
+    if (testOverride) thresholdHours = 0.00083;
+
+    // But never below 48h in real use
+    if (!testOverride) thresholdHours = Math.max(thresholdHours, 48);
+
+    for (const tracking of trackings) {
+      const { messageIdHeader, threadId, sentAt, _id } = tracking;
+      if (!messageIdHeader || !threadId || !sentAt) continue;
+
+      // Fetch thread messages
       const thread = await gmail.users.threads.get({
         userId: 'me',
-        id: tracking.threadId,
+        id: threadId,
         format: 'metadata',
-        metadataHeaders: ['In-Reply-To', 'From']
+        metadataHeaders: ['In-Reply-To', 'From', 'Date']
       });
 
-      const messages = thread.data.messages || [];
       let replyMatched = false;
 
-      for (const msg of messages) {
-        const headers   = msg.payload?.headers || [];
-        const fromHeader = headers.find(h => h.name.toLowerCase() === 'from')?.value || '';
-        const inReplyTo  = headers.find(h => h.name === 'In-Reply-To')?.value;
-        const fromEmail  = fromHeader.match(/<(.+?)>/)?.[1] || fromHeader;
-        const sentTime   = Number(msg.internalDate);
+      for (const msg of thread.data.messages || []) {
+        const headers = msg.payload?.headers || [];
+        const inReplyTo = headers.find(h => h.name === 'In-Reply-To')?.value;
+        const from = headers.find(h => h.name === 'From')?.value;
+        const dateHeader = headers.find(h => h.name === 'Date')?.value;
+        const msgDate = new Date(dateHeader);
 
-        // Primary match: compare reply's In-Reply-To to stored RFC‑822 Message-ID
-        if (inReplyTo === tracking.messageIdHeader) {
+        // Check for matching reply
+        if (inReplyTo === messageIdHeader) {
+          const now = new Date();
+          const replyTimeMs = now - new Date(sentAt);
+          const replyTimeInHours = Math.round(replyTimeMs / (1000 * 60 * 60));
+
+          tracking.status = 'responded';
+          tracking.responseReceivedAt = msgDate;
+          tracking.replyTimeInHours = replyTimeInHours;
+          await tracking.save();
+          console.log(`✅ Replied (${_id}) in ${replyTimeInHours}h`);
           replyMatched = true;
           break;
         }
+      }
 
-        // Fallback: match by sender and timestamp if In-Reply-To is missing
-        if (!inReplyTo &&
-            fromEmail.toLowerCase() === tracking.to.toLowerCase() &&
-            sentTime > tracking.sentAt.getTime()
-        ) {
-          replyMatched = true;
-          break;
+      if (!replyMatched) {
+        const ghostCutoff = Date.now() - thresholdHours * 60 * 60 * 1000;
+        const sentAtTime = new Date(sentAt).getTime();
+
+        // Debug logging
+        console.log(`⏱ Checking ghost: sentAt=${sentAtTime}, ghostCutoff=${ghostCutoff}`);
+
+        if (sentAtTime < ghostCutoff) {
+          tracking.status = 'ghosted';
+          await tracking.save();
+          console.log(`👻 Ghosted (${_id}) after ${thresholdHours}h`);
         }
       }
-
-      if (replyMatched) {
-        tracking.status = 'responded';
-        tracking.responseReceivedAt = new Date();
-        await tracking.save();
-        continue;
-      }
-
-      // Ghosted check: no reply after 3 days
-      const threeDaysAgo = Date.now() - 3 * 24 * 60 * 60 * 1000;
-      if (tracking.sentAt.getTime() < threeDaysAgo) {
-        tracking.status = 'ghosted';
-        await tracking.save();
-      }
-
-    } catch (err) {
-      console.error(`Error checking tracking ${tracking._id}:`, err.message);
     }
-  }
-}
 
-module.exports = checkEmailStatus;
+    res.json({ message: 'Status sync complete' });
+
+  } catch (err) {
+    console.error('❌ Email sync error:', err);
+    res.status(500).json({ error: 'Failed to sync email statuses' });
+  }
+};
