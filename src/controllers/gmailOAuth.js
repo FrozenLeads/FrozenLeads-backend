@@ -4,6 +4,7 @@ const User = require('../models/user');
 const SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.modify', // Critical for search
+   'https://www.googleapis.com/auth/gmail.compose',
   'https://www.googleapis.com/auth/userinfo.email'
 ];
 

@@ -1,53 +1,89 @@
-require('dotenv').config()
+require('dotenv').config();
+
+// -------------------------------------------------------------
+
+
+
 const express = require('express');
-const mongoose = require('mongoose');
-const ConnectDb = require('./config/database');
+
 const cookieParser = require('cookie-parser');
+
+const cors = require('cors');
+
+const ConnectDb = require('./config/database.js');
+
+
+
+const authRouter = require('./routes/auth.js');
+
+const profileRouter = require('./routes/profile.js');
+
+const leadRouter = require('./routes/lead.js');
+
+const userLeadRouter = require('./routes/userLead.js');
+
+const collaborationRouter = require('./routes/collaboration.js');
+
+const GamilRouter = require('./routes/gmailRoutes.js');
+
+const Trackingrouter = require('./routes/emailTrackingRoutes.js');
+
+
+
 const app = express();
 
+
+
+app.use(cors({ origin: 'http://localhost:3000', credentials: true }));
+
 app.use(express.json());
+
 app.use(cookieParser());
-const cors = require('cors');
-app.use(cors({
-    origin: 'http://localhost:3000',
-    credentials: true,
-     allowedHeaders: ['Content-Type', 'Authorization'] // Allow sending cookies with requests
-}));
 
 
 
+app.use('/', authRouter);
 
-const authRouter = require('./routes/auth')
-const profileRouter = require('./routes/profile')
-const leadRouter = require('./routes/lead');
-const userLeadRouter = require('./routes/userLead');
-const collaborationRouter = require('./routes/collaboration');
-const GamilRouter = require('./routes/gmailRoutes');
-const Trackingrouter = require('./routes/emailTrackingRoutes');
+app.use('/', profileRouter);
 
+app.use('/', leadRouter);
 
-app.use('/',authRouter);
-app.use('/',profileRouter);
-app.use('/',leadRouter);
-app.use('/',userLeadRouter);
-app.use('/',collaborationRouter);
-app.use('/',GamilRouter);
-app.use('/',Trackingrouter);
+app.use('/', userLeadRouter);
+
+app.use('/', collaborationRouter);
+
+app.use('/', GamilRouter);
+
+app.use('/', Trackingrouter);
+
 
 
 ConnectDb().then(() => {
-  console.log('Db connected');
 
-  try {
-    require('./jobs/emailStatusChecker');  // <-- Wrap in try-catch
-    app.listen(5000, () => {
-      console.log('server connected');
-    });
-  } catch (err) {
-    console.error('Error during startup logic:', err);
-  }
+    console.log('Database connected successfully.');
+
+   
+
+    // --- THE CHANGE IS HERE ---
+
+    // We only need the status checker job now. The followUpJob has been removed.
+
+    require('./jobs/emailStatusChecker.js');
+
+    // -------------------------
+
+
+
+    const PORT = process.env.PORT || 5000;
+
+    app.listen(PORT, () => {
+
+      console.log(`Server is running on port ${PORT}`);
+
+    });
 
 }).catch((err) => {
-  console.error('Db not connected:', err);
-});
 
+    console.error('Database connection failed:', err);
+
+});

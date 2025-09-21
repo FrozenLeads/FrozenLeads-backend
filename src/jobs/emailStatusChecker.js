@@ -1,94 +1,193 @@
-// controllers/emailStatusChecker.js
 const UserLeadActivity = require('../models/UserLeadActivity');
+
+const User = require('../models/user');
+
 const { getGmailClient } = require('../utils/gmailClient');
 
-exports.checkEmailStatus = async (req, res) => {
-  const userId = req.user._id;
 
-  try {
-    const gmail = await getGmailClient(userId);
 
-    // Get all unreplied/sent trackings
-    const trackings = await UserLeadActivity.find({
-      user: userId,
-      status: { $nin: ['responded', 'ghosted', 'bounced'] }
-    });
+const GHOSTING_THRESHOLD_HOURS = 48;
 
-    // Get past replies to calculate adaptive threshold
-    const pastReplies = await UserLeadActivity.find({
-      user: userId,
-      replyTimeInHours: { $ne: null }
-    });
 
-    let thresholdHours = 0.0083; // default
-    if (pastReplies.length >= 10) {
-      const avg = pastReplies.reduce((sum, doc) => sum + doc.replyTimeInHours, 0) / pastReplies.length;
-      thresholdHours = Math.round(avg);
-    }
 
-    // ⏱ override for test: 3 seconds = 0.00083 hours
-    const testOverride = true;
-    if (testOverride) thresholdHours = 0.00083;
+const checkEmailStatusesLogic = async () => {
 
-    // But never below 48h in real use
-    if (!testOverride) thresholdHours = Math.max(thresholdHours, 48);
+    console.log('Running Smart Status Check job (State Machine Strategy)...');
 
-    for (const tracking of trackings) {
-      const { messageIdHeader, threadId, sentAt, _id } = tracking;
-      if (!messageIdHeader || !threadId || !sentAt) continue;
+    try {
 
-      // Fetch thread messages
-      const thread = await gmail.users.threads.get({
-        userId: 'me',
-        id: threadId,
-        format: 'metadata',
-        metadataHeaders: ['In-Reply-To', 'From', 'Date']
-      });
+        // Find all emails that are not manually closed.
 
-      let replyMatched = false;
+        const trackings = await UserLeadActivity.find({
 
-      for (const msg of thread.data.messages || []) {
-        const headers = msg.payload?.headers || [];
-        const inReplyTo = headers.find(h => h.name === 'In-Reply-To')?.value;
-        const from = headers.find(h => h.name === 'From')?.value;
-        const dateHeader = headers.find(h => h.name === 'Date')?.value;
-        const msgDate = new Date(dateHeader);
+            status: { $nin: ['not-interested'] }
 
-        // Check for matching reply
-        if (inReplyTo === messageIdHeader) {
-          const now = new Date();
-          const replyTimeMs = now - new Date(sentAt);
-          const replyTimeInHours = Math.round(replyTimeMs / (1000 * 60 * 60));
+        }).populate('user');
 
-          tracking.status = 'responded';
-          tracking.responseReceivedAt = msgDate;
-          tracking.replyTimeInHours = replyTimeInHours;
-          await tracking.save();
-          console.log(`✅ Replied (${_id}) in ${replyTimeInHours}h`);
-          replyMatched = true;
-          break;
-        }
-      }
 
-      if (!replyMatched) {
-        const ghostCutoff = Date.now() - thresholdHours * 60 * 60 * 1000;
-        const sentAtTime = new Date(sentAt).getTime();
 
-        // Debug logging
-        console.log(`⏱ Checking ghost: sentAt=${sentAtTime}, ghostCutoff=${ghostCutoff}`);
+        for (const tracking of trackings) {
 
-        if (sentAtTime < ghostCutoff) {
-          tracking.status = 'ghosted';
-          await tracking.save();
-          console.log(`👻 Ghosted (${_id}) after ${thresholdHours}h`);
-        }
-      }
-    }
+            const { user, threadId, _id, status: oldStatus } = tracking;
 
-    res.json({ message: 'Status sync complete' });
+            if (!user || !user.googleTokens || !threadId) continue;
 
-  } catch (err) {
-    console.error('❌ Email sync error:', err);
-    res.status(500).json({ error: 'Failed to sync email statuses' });
-  }
+
+
+            const gmail = await getGmailClient(user._id);
+
+            const thread = await gmail.users.threads.get({
+
+                userId: 'me',
+
+                id: threadId,
+
+                format: 'metadata',
+
+                metadataHeaders: ['From', 'Date']
+
+            });
+
+
+
+            const newMessages = (thread.data.messages || []).slice(1);
+
+
+
+            if (newMessages.length > 0) {
+
+                const lastMessage = newMessages[newMessages.length - 1];
+
+                const headers = lastMessage.payload?.headers || [];
+
+                const fromHeader = headers.find(h => h.name.toLowerCase() === 'from')?.value || '';
+
+                const dateHeader = headers.find(h => h.name.toLowerCase() === 'date')?.value;
+
+               
+
+                // --- THE FINAL, DEFINITIVE FIX STARTS HERE ---
+
+                // This is a more robust way to check the sender's identity.
+
+                const fromMe = fromHeader.toLowerCase().includes(user.emailId.toLowerCase());
+
+
+
+                if (fromMe) {
+
+                    // SENDER IS YOU (THE USER):
+
+                    if (oldStatus === 'responded') {
+
+                        // If you are replying to a recruiter, the conversation is active.
+
+                        tracking.status = 'Engaged';
+
+                        await tracking.save();
+
+                        console.log(`✅ [Status Check] User reply to recruiter detected for ${_id}. Status -> 'Engaged'.`);
+
+                    } else if (['sent', 'ghosted'].includes(oldStatus)) {
+
+                        // If you are sending a nudge to an unanswered email, it's a 'follow-up'.
+
+                        tracking.status = 'follow-up';
+
+                        tracking.followUpSentAt = new Date(dateHeader);
+
+                        await tracking.save();
+
+                        console.log(`✅ [Status Check] User nudge (manual follow-up) detected for ${_id}. Status -> 'follow-up'.`);
+
+                    }
+
+                } else {
+
+                    // SENDER IS THE RECRUITER:
+
+                    // If the last message is from the recruiter, the ball is in your court.
+
+                    // The status ALWAYS becomes 'responded'.
+
+                    if (oldStatus !== 'responded') {
+
+                        tracking.status = 'responded';
+
+                        tracking.responseReceivedAt = new Date(dateHeader);
+
+                        await tracking.save();
+
+                        console.log(`✅ [Status Check] Recruiter reply detected for ${_id}. Status -> 'responded'.`);
+
+                    }
+
+                }
+
+                // --- THE FINAL, DEFINITIVE FIX ENDS HERE ---
+
+
+
+            } else {
+
+                // Ghosting logic remains the same
+
+                if (oldStatus !== 'ghosted') {
+
+                    const baseTime = tracking.sentAt;
+
+                    if (baseTime) {
+
+                        const ghostCutoff = Date.now() - (GHOSTING_THRESHOLD_HOURS * 60 * 60 * 1000);
+
+                        if (new Date(baseTime).getTime() < ghostCutoff) {
+
+                            tracking.status = 'ghosted';
+
+                            await tracking.save();
+
+                            console.log(`👻 [Status Check] Status for ${_id} updated to 'ghosted'.`);
+
+                        }
+
+                    }
+
+                }
+
+            }
+
+        }
+
+    } catch (err) {
+
+        console.error('❌ Error in smart status check job:', err.message);
+
+    }
+
 };
+
+
+
+exports.checkEmailStatusController = async (req, res) => {
+
+    try {
+
+        await checkEmailStatusesLogic();
+
+        res.json({ message: 'Manual status sync has been triggered.' });
+
+    } catch (err) {
+
+        console.error('❌ Manual sync error:', err.message);
+
+        res.status(500).json({ error: 'Failed to manually sync email statuses.' });
+
+    }
+
+};
+
+
+
+setInterval(checkEmailStatusesLogic, 15 * 60 * 1000);
+
+checkEmailStatusesLogic();
