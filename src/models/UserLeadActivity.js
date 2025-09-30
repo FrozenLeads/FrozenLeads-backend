@@ -34,7 +34,7 @@ const userLeadActivitySchema = new mongoose.Schema({
 
         // --- 'Engaged' has been added to the list ---
 
-        enum: [ 'sent', 'responded', 'ghosted', 'follow-up', 'not-interested', 'Engaged' ],
+        enum: [ 'sent', 'responded', 'ghosted', 'follow-up', 'not-interested', 'Engaged',"revived" ],
 
         default: 'sent'
 
