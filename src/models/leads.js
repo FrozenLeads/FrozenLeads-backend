@@ -6,105 +6,105 @@ const mongoose = require('mongoose');
 
 const leadsSchema = new mongoose.Schema({
 
-  leadName: {
+    leadName: {
 
-    type: String,
+        type: String,
 
-    required: true,
+        required: true,
 
-    min: 4,
+        min: 4,
 
-    max: 40,
+        max: 40,
 
-    trim: true
+        trim: true
 
-  },
+    },
 
-  LeadEmailId: {
+    LeadEmailId: {
 
-    type: String,
+        type: String,
 
-    trim: true,
+        trim: true,
 
-    validate: {
+        validate: {
 
-      validator: function(value) {
+            validator: function (value) {
 
-        return value || this.phone;
+                return value || this.phone;
 
-      },
+            },
 
-      message: 'Either email or phone must be provided'
+            message: 'Either email or phone must be provided'
 
-    }
+        }
 
-  },
+    },
 
-  phone: {
+    phone: {
 
-    type: String,
+        type: String,
 
-    trim: true,
+        trim: true,
 
-    validate: {
+        validate: {
 
-      validator: function(value) {
+            validator: function (value) {
 
-        return value || this.LeadEmailId;
+                return value || this.LeadEmailId;
 
-      },
+            },
 
-      message: 'Either phone or email must be provided'
+            message: 'Either phone or email must be provided'
 
-    }
+        }
 
-  },
+    },
 
-  source: {
+    source: {
 
-    type: String,
+        type: String,
 
-    default: 'Linkedin.com',
+        default: 'Linkedin.com',
 
-    trim: true
+        trim: true
 
-  },
+    },
 
-  notes: {
+    notes: {
 
-    type: String,
+        type: String,
 
-    trim: true
+        trim: true
 
-  },
+    },
 
-  user: {
+    user: {
 
-    type: mongoose.Schema.Types.ObjectId,
+        type: mongoose.Schema.Types.ObjectId,
 
-    ref: 'User',
+        ref: 'User',
 
-    required: true
+        required: true
 
-  },
+    },
 
-  collaborationGroup: {
+    collaborationGroup: {
 
-    type: mongoose.Schema.Types.ObjectId,
+        type: mongoose.Schema.Types.ObjectId,
 
-    ref: 'Collaboration',
+        ref: 'Collaboration',
 
-    default: null
+        default: null
 
-  },
+    },
 
-  isPublic: {
+    isPublic: {
 
-    type: Boolean,
+        type: Boolean,
 
-    default: true
+        default: true
 
-  }
+    }
 
 }, { timestamps: true });
 
