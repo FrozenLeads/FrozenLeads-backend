@@ -1,76 +1,193 @@
-// utils/statusChecker.js
 const UserLeadActivity = require('../models/UserLeadActivity');
-const { google } = require('googleapis');
 
-async function checkEmailStatus() {
-  const activeTrackings = await UserLeadActivity.find({
-    status: { $nin: ['responded', 'ghosted', 'bounced'] }
-  }).populate('user');
+const User = require('../models/user');
 
-  for (const tracking of activeTrackings) {
-    try {
-      const user = tracking.user;
-      if (!user || !user.googleTokens) continue;
+const { getGmailClient } = require('../utils/gmailClient');
 
-      const oAuth2Client = new google.auth.OAuth2(
-        process.env.GOOGLE_CLIENT_ID,
-        process.env.GOOGLE_CLIENT_SECRET,
-        process.env.GOOGLE_REDIRECT_URI
-      );
-      oAuth2Client.setCredentials(user.googleTokens);
-      const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
 
-      const thread = await gmail.users.threads.get({
-        userId: 'me',
-        id: tracking.threadId,
-        format: 'metadata',
-        metadataHeaders: ['In-Reply-To', 'From']
-      });
 
-      const messages = thread.data.messages || [];
-      let replyMatched = false;
+const GHOSTING_THRESHOLD_HOURS = 48;
 
-      for (const msg of messages) {
-        const headers   = msg.payload?.headers || [];
-        const fromHeader = headers.find(h => h.name.toLowerCase() === 'from')?.value || '';
-        const inReplyTo  = headers.find(h => h.name === 'In-Reply-To')?.value;
-        const fromEmail  = fromHeader.match(/<(.+?)>/)?.[1] || fromHeader;
-        const sentTime   = Number(msg.internalDate);
 
-        // Primary match: compare reply's In-Reply-To to stored RFC‑822 Message-ID
-        if (inReplyTo === tracking.messageIdHeader) {
-          replyMatched = true;
-          break;
-        }
 
-        // Fallback: match by sender and timestamp if In-Reply-To is missing
-        if (!inReplyTo &&
-            fromEmail.toLowerCase() === tracking.to.toLowerCase() &&
-            sentTime > tracking.sentAt.getTime()
-        ) {
-          replyMatched = true;
-          break;
-        }
-      }
+const checkEmailStatusesLogic = async () => {
 
-      if (replyMatched) {
-        tracking.status = 'responded';
-        tracking.responseReceivedAt = new Date();
-        await tracking.save();
-        continue;
-      }
+    console.log('Running Smart Status Check job (State Machine Strategy)...');
 
-      // Ghosted check: no reply after 3 days
-      const threeDaysAgo = Date.now() - 3 * 24 * 60 * 60 * 1000;
-      if (tracking.sentAt.getTime() < threeDaysAgo) {
-        tracking.status = 'ghosted';
-        await tracking.save();
-      }
+    try {
 
-    } catch (err) {
-      console.error(`Error checking tracking ${tracking._id}:`, err.message);
-    }
-  }
-}
+        // Find all emails that are not manually closed.
 
-module.exports = checkEmailStatus;
+        const trackings = await UserLeadActivity.find({
+
+            status: { $nin: ['not-interested'] }
+
+        }).populate('user');
+
+
+
+        for (const tracking of trackings) {
+
+            const { user, threadId, _id, status: oldStatus } = tracking;
+
+            if (!user || !user.googleTokens || !threadId) continue;
+
+
+
+            const gmail = await getGmailClient(user._id);
+
+            const thread = await gmail.users.threads.get({
+
+                userId: 'me',
+
+                id: threadId,
+
+                format: 'metadata',
+
+                metadataHeaders: ['From', 'Date']
+
+            });
+
+
+
+            const newMessages = (thread.data.messages || []).slice(1);
+
+
+
+            if (newMessages.length > 0) {
+
+                const lastMessage = newMessages[newMessages.length - 1];
+
+                const headers = lastMessage.payload?.headers || [];
+
+                const fromHeader = headers.find(h => h.name.toLowerCase() === 'from')?.value || '';
+
+                const dateHeader = headers.find(h => h.name.toLowerCase() === 'date')?.value;
+
+               
+
+                // --- THE FINAL, DEFINITIVE FIX STARTS HERE ---
+
+                // This is a more robust way to check the sender's identity.
+
+                const fromMe = fromHeader.toLowerCase().includes(user.emailId.toLowerCase());
+
+
+
+                if (fromMe) {
+
+                    // SENDER IS YOU (THE USER):
+
+                    if (oldStatus === 'responded') {
+
+                        // If you are replying to a recruiter, the conversation is active.
+
+                        tracking.status = 'Engaged';
+
+                        await tracking.save();
+
+                        console.log(`✅ [Status Check] User reply to recruiter detected for ${_id}. Status -> 'Engaged'.`);
+
+                    } else if (['sent', 'ghosted'].includes(oldStatus)) {
+
+                        // If you are sending a nudge to an unanswered email, it's a 'follow-up'.
+
+                        tracking.status = 'follow-up';
+
+                        tracking.followUpSentAt = new Date(dateHeader);
+
+                        await tracking.save();
+
+                        console.log(`✅ [Status Check] User nudge (manual follow-up) detected for ${_id}. Status -> 'follow-up'.`);
+
+                    }
+
+                } else {
+
+                    // SENDER IS THE RECRUITER:
+
+                    // If the last message is from the recruiter, the ball is in your court.
+
+                    // The status ALWAYS becomes 'responded'.
+
+                    if (oldStatus !== 'responded') {
+
+                        tracking.status = 'responded';
+
+                        tracking.responseReceivedAt = new Date(dateHeader);
+
+                        await tracking.save();
+
+                        console.log(`✅ [Status Check] Recruiter reply detected for ${_id}. Status -> 'responded'.`);
+
+                    }
+
+                }
+
+                // --- THE FINAL, DEFINITIVE FIX ENDS HERE ---
+
+
+
+            } else {
+
+                // Ghosting logic remains the same
+
+                if (oldStatus !== 'ghosted') {
+
+                    const baseTime = tracking.sentAt;
+
+                    if (baseTime) {
+
+                        const ghostCutoff = Date.now() - (GHOSTING_THRESHOLD_HOURS * 60 * 60 * 1000);
+
+                        if (new Date(baseTime).getTime() < ghostCutoff) {
+
+                            tracking.status = 'ghosted';
+
+                            await tracking.save();
+
+                            console.log(`👻 [Status Check] Status for ${_id} updated to 'ghosted'.`);
+
+                        }
+
+                    }
+
+                }
+
+            }
+
+        }
+
+    } catch (err) {
+
+        console.error('❌ Error in smart status check job:', err.message);
+
+    }
+
+};
+
+
+
+exports.checkEmailStatusController = async (req, res) => {
+
+    try {
+
+        await checkEmailStatusesLogic();
+
+        res.json({ message: 'Manual status sync has been triggered.' });
+
+    } catch (err) {
+
+        console.error('❌ Manual sync error:', err.message);
+
+        res.status(500).json({ error: 'Failed to manually sync email statuses.' });
+
+    }
+
+};
+
+
+
+setInterval(checkEmailStatusesLogic, 15 * 60 * 1000);
+
+checkEmailStatusesLogic();
