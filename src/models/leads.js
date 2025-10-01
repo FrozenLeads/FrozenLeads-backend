@@ -78,37 +78,21 @@ const leadsSchema = new mongoose.Schema({
 
     },
 
-    user: {
-
+ user: {
         type: mongoose.Schema.Types.ObjectId,
-
         ref: 'User',
-
         required: true
-
     },
-
-    collaborationGroup: {
-
-        type: mongoose.Schema.Types.ObjectId,
-
-        ref: 'Collaboration',
-
-        default: null
-
+    origin: { // <-- ADD THIS FIELD
+        type: String,
+        enum: ['manual', 'tracked'],
+        default: 'manual'
     },
-
     isPublic: {
-
         type: Boolean,
-
         default: true
-
     }
-
 }, { timestamps: true });
-
-
 
 module.exports = mongoose.model('Lead', leadsSchema);
 
