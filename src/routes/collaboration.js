@@ -253,5 +253,46 @@ collaborationRouter.post('/collab/:groupId/add-collaborator', userAuth, async (r
     }
 });
 
+// In src/routes/collaboration.js
+
+// UNSHARE A LEAD FROM A GROUP
+collaborationRouter.delete('/collab/:groupId/leads/:sharedLeadId', userAuth, async (req, res) => {
+    try {
+        const { groupId, sharedLeadId } = req.params;
+        const currentUserId = req.user._id;
+
+        // Find the specific "link" document that connects the lead to the group
+        const sharedLead = await SharedLead.findById(sharedLeadId);
+        if (!sharedLead) {
+            return res.status(404).json({ message: 'This shared lead does not exist.' });
+        }
+
+        // Find the group to check for ownership
+        const group = await Collaboration.findById(groupId);
+        if (!group) {
+            return res.status(404).json({ message: 'Group not found.' });
+        }
+
+        // --- PERMISSION CHECK ---
+        // Check if the current user is the group owner
+        const isOwner = group.owner.equals(currentUserId);
+        // Check if the current user is the one who originally shared the lead
+        const isSharer = sharedLead.sharedBy.equals(currentUserId);
+
+        // If the user is NOT the owner AND NOT the original sharer, deny access
+        if (!isOwner && !isSharer) {
+            return res.status(403).json({ message: 'You do not have permission to unshare this lead.' });
+        }
+
+        // If permission check passes, delete the SharedLead document
+        await SharedLead.findByIdAndDelete(sharedLeadId);
+
+        res.json({ message: 'Lead has been unshared from the group successfully.' });
+
+    } catch (error) {
+        console.error("Error unsharing lead:", error);
+        res.status(500).json({ message: 'Failed to unshare lead: ' + error.message });
+    }
+});
 
 module.exports = collaborationRouter;
