@@ -24,6 +24,14 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: true,
     },
+     username: {
+        type: String,
+        lowercase: true,
+        trim: true,
+    },
+    discriminator: {
+        type: String, // Stored as a string to preserve leading zeros e.g., '0042'
+    },
     age: {
         type: Number,
         min: 17
@@ -43,7 +51,8 @@ const userSchema = new mongoose.Schema({
         type: Object,
         default: null,
     },
-}, { timestamps: true })
+}, { timestamps: true });
+userSchema.index({ username: 1, discriminator: 1 }, { unique: true });
 
 userSchema.methods.getJwt = async function () {
     const user = this
@@ -64,6 +73,29 @@ userSchema.pre('save', async function (next) {
         if (user.isModified('password')) {
             user.password = await bcrypt.hash(user.password, 10);
         }
+        if (this.isNew) {
+        this.username = this.firstName.toLowerCase().replace(/\s/g, '');
+        let uniqueHandleFound = false;
+        
+        while (!uniqueHandleFound) {
+            // Generate a random 4-digit number as a string
+            const randomDiscriminator = Math.floor(1000 + Math.random() * 9000).toString();
+            
+            // Check if a user with this username + discriminator already exists
+            const existingUser = await mongoose.model('User').findOne({
+                username: this.username,
+                discriminator: randomDiscriminator
+            });
+            
+            // If no user is found, this handle is unique
+            if (!existingUser) {
+                this.discriminator = randomDiscriminator;
+                uniqueHandleFound = true;
+            }
+            // If a user IS found, the loop will run again to get a new number
+        }
+    }
+    
         next();
     } catch (error) {
         next(error);

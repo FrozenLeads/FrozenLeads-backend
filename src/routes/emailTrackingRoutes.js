@@ -69,4 +69,22 @@ Trackingrouter.patch('/tracking/:id/name', userAuth, async (req, res) => {
         res.status(500).json({ error: 'Failed to update tracking name.' });
     }
 });
+
+Trackingrouter.delete('/tracking/:id', userAuth, async (req, res) => {
+    try {
+        const deletedTracking = await UserLeadActivity.findOneAndDelete({ 
+            _id: req.params.id, 
+            user: req.user._id 
+        });
+
+        if (!deletedTracking) {
+            return res.status(404).json({ error: 'Tracking record not found or you do not have permission to delete it.' });
+        }
+
+        res.json({ message: 'Tracking record deleted successfully.' });
+    } catch (error) {
+        console.error("Error deleting tracking record:", error);
+        res.status(500).json({ error: 'Failed to delete tracking record.' });
+    }
+});
 module.exports = Trackingrouter;
